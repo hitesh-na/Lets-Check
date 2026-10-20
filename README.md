@@ -1,24 +1,26 @@
 # Let's Check
 
-A distributed website health checker built with Python, FastAPI, Redis Streams,
-and independent worker processes. Submit an approved URL, receive a job ID,
-and poll for the HTTP outcome, latency, attempts, and worker that handled it.
+Let's Check is a website health checker built with Python, FastAPI, Redis Streams, and HTTPX. Give it a list of websites, and it checks their HTTP responses, records how long each check takes, and saves the results in a report.
 
-The API waits for Redis to queue the job, then returns HTTP 202. Separate
-workers perform the network requests, so a slow website does not keep the
-submission request waiting for the check to finish. Two workers share a Redis
-consumer group and each handle one job at a time.
+You choose which websites to check and how many to include. The general batch runner counts the entries automatically, so changing the size of your list doesn't require changing the Python code. The included 20-site and 200-site lists are examples you can try or replace with your own.
 
-**Live verification on Windows, 2026-10-20:** a 20-site batch and two
-200-site batches completed with both workers participating. The baseline
-200-site run completed in **50.95 seconds**. A subsequent browser-style
-User-Agent run also completed all 200 jobs; both runs classified 150
-results as healthy under the project's HTTP-status rules.
+Checks run in the background through separate workers. The API puts jobs into a shared Redis queue, and available workers pick them up. While one worker waits for a slow website, another can keep working through the list.
 
-Previously recorded automated test result: **58 passed, 1 warning**.
-See the [original demo evidence](docs/DEMO_EVIDENCE.md) and
-[multi-website results and instructions](docs/BATCH_RESULTS.md).
-This project is a local portfolio MVP.
+**Live verification:** two batches of 200 different websites completed with both workers contributing. The baseline batch took **50.95 seconds**, including submission and polling. The results and saved reports are linked below.
+
+## What it checks
+
+For each URL, Let's Check records:
+
+- The HTTP response status.
+- Whether an HTTP response arrived.
+- Whether the response meets the project's health rule.
+- Time spent on the HTTP check, including any retry.
+- Number of attempts.
+- The worker that processed the job.
+- A network error if the request failed.
+
+This checks HTTP availability. It doesn't verify every feature on a website or measure how quickly a page loads in a browser.
 
 ## Architecture
 
@@ -35,244 +37,369 @@ flowchart TD
     worker2 -->|"Result and TTL"|results
 ```
 
-The API writes a queued job hash and a stream entry before returning 202.
-Workers read with `XREADGROUP`, save the running state, perform a streamed HTTP
-GET, and store the completed result with a 24-hour expiry. They acknowledge the
-stream message with `XACK` only after that final write succeeds. Poll requests
-read the stored job hash; they do not trigger another website request.
+When a client submits a URL, the API stores the job in Redis and returns HTTP 202 with a job ID. The website request happens separately, so the client doesn't have to wait for the website to respond before receiving that ID.
 
-Redis Streams provides a shared backlog, consumer groups, and pending-message
-tracking without a separate task framework. Docker Compose runs Redis; the API
-and workers run as independent Python processes on the same computer.
+Workers share a Redis Streams consumer group. Each worker takes one job at a time, marks it as running, sends an HTTP GET request, and saves the completed result. Workers check the supplied URLs; they don't discover links or crawl entire websites.
 
-## First setup on Windows
+A worker acknowledges its stream message with `XACK` only after saving the result. Completed results expire after 24 hours. Polling the API reads the stored result rather than making another request to the website.
 
-Requirements: Python 3.11 or later, Docker Desktop with Compose, and a terminal.
-VS Code is convenient; Git is needed for version control and GitHub publication.
-The verified Windows setup uses Python 3.11.7 and the `redis:7.4-alpine` image.
+Docker Compose runs Redis. The API and workers run as independent Python processes. The recorded demonstrations used two workers on one Windows computer.
 
-Extract the source or clone your repository. In VS Code, open the project folder
-that directly contains `requirements.txt` and `docker-compose.yml`. Open
-**Terminal > New Terminal**, using PowerShell. Keep Docker Desktop running.
-Run these commands one at a time:
+## What we tested
+
+On October 20, 2026, we checked 20 different websites, then compared two runs of the same 200-website list:
+
+- One using the default request header.
+- One using a browser-style User-Agent.
+
+| Measurement | 20 websites | 200: default header | 200: browser header |
+| --- | ---: | ---: | ---: |
+| Completed checks | 20/20 | 200/200 | 200/200 |
+| Healthy under the HTTP rule | 19 | 150 | 150 |
+| HTTP 403 responses | 1 | 39 | 40 |
+| No HTTP response | 0 | 7 | 6 |
+| Jobs handled by worker-1 | 9 | 113 | 94 |
+| Jobs handled by worker-2 | 11 | 87 | 106 |
+
+The baseline 200-site batch finished in **50.95 seconds**, including submission and polling.
+
+Both 200-site runs completed every job. In each run, 150 checks met the health rule and 50 did not. Completing a job means processing finished; its result can still be an HTTP error or a network failure.
+
+Changing the User-Agent left the healthy count at 150. These runs did not show an improvement in the overall healthy count from that change.
+
+The saved reports contain the individual website results:
+
+- [Full comparison and batch notes](docs/BATCH_RESULTS.md)
+- [Default-header report](docs/results/200-sites-default-header.json)
+- [Browser-header report](docs/results/200-sites-browser-header.json)
+
+These measurements describe local runs. Results and runtime will vary with the machine, network, and websites being checked. Batches larger than 200 have not been verified live in the recorded evidence.
+
+## Getting started on Windows
+
+You'll need:
+
+- Python 3.11 or later.
+- Docker Desktop with Docker Compose.
+- PowerShell.
+- Git if you want to clone the repository.
+
+The recorded Windows setup used Python 3.11.7.
+
+### 1. Install dependencies and start Redis
+
+Clone the repository, or open your existing project folder:
+
+```powershell
+git clone https://github.com/hitesh-na/Lets-Check.git
+cd Lets-Check
+```
+
+Keep Docker Desktop running, then create the Python environment and install dependencies:
 
 ```powershell
 py -3.11 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe -m pip check
-.\.venv\Scripts\python.exe -m pytest -q
+```
+
+Start Redis:
+
+```powershell
 docker compose up -d redis
-docker compose ps
 docker compose exec redis redis-cli ping
 ```
 
-Expect passing tests, Redis running, and `PONG`. Its healthcheck can take a few
-seconds. If you already have the working environment, continue with the run
-commands below. Every command uses the virtual environment's Python directly;
-activation and PowerShell execution-policy changes are unnecessary.
+Redis should respond with `PONG`. If it is still starting, wait a few seconds and run the ping again.
 
-Direct dependencies are pinned in `requirements.txt`. To record all packages
-installed on a particular machine, optionally save `pip freeze` output to a
-separate lock file for that environment.
+The commands below use the virtual environment's Python directly, so activating the environment is optional.
 
-## Run the API and two workers
+### 2. Prepare the general batch runner
 
-Use four terminals, all opened in the project folder. Keep the API and worker
-commands running. If a process is already running, use that instance.
+The original demo scripts expect a fixed number of results. For your own list sizes, use `scripts/check_sites.py`.
 
-**Terminal 1 â€” API:**
+If that file already exists, continue to step 3. Otherwise, run this once in PowerShell from the project folder. It creates the general runner from the existing 200-site demo:
+
+```powershell
+@'
+import ast
+from pathlib import Path
+
+source = Path("scripts/demo_200_sites.py").read_text(encoding="utf-8-sig")
+
+changes = {
+    "BATCH_SIZE = 200": """HOSTS = list(dict.fromkeys(
+    host.strip().lower()
+    for host in os.getenv("ALLOWED_HOSTS", "").split(",")
+    if host.strip()
+))
+BATCH_SIZE = len(HOSTS)""",
+    'EXPECTED_WORKERS = {"worker-1", "worker-2"}':
+        "EXPECTED_WORKERS = set()",
+    'for host in os.environ["ALLOWED_HOSTS"].split(","):':
+        "for host in HOSTS:",
+    '"All 200 jobs completed and both expected workers contributed."':
+        'f"All {BATCH_SIZE} jobs completed."',
+    "    started_at = datetime.now(UTC)":
+        '    if not HOSTS:\n'
+        '        parser.error("Load your websites into ALLOWED_HOSTS first")\n\n'
+        '    started_at = datetime.now(UTC)',
+}
+
+for old, new in changes.items():
+    if source.count(old) != 1:
+        raise SystemExit("The demo differs from the expected version. No file changed.")
+    source = source.replace(old, new, 1)
+
+source = source.replace(
+    "Submit a manual 200-site demo and record whether both named workers contributed.",
+    "Check the websites in ALLOWED_HOSTS and save a batch report."
+)
+ast.parse(source)
+Path("scripts/check_sites.py").write_text(source, encoding="utf-8")
+print("Created scripts/check_sites.py")
+'@ | .\.venv\Scripts\python.exe -
+```
+
+This keeps the original demo available and creates a runner that calculates its expected result count from your website list.
+
+### 3. Choose your websites
+
+Create a file named `sites.txt` in the project folder. Put one hostname on each line:
+
+```text
+example.com
+www.python.org
+github.com
+```
+
+Use hostnames without `https://`, paths, or port numbers. The batch runner requests the HTTPS root URL of each hostname.
+
+Add or remove entries to choose the number of websites. You don't need to supply a separate count.
+
+To try the included 200-site list:
+
+```powershell
+Copy-Item .\sites_200.txt .\sites.txt
+```
+
+For the 20-site example, use `sites_20.txt` instead.
+
+### 4. Load the list and start the API and workers
+
+Open four PowerShell terminals in the project folder.
+
+If the API or workers are already running, stop them with Ctrl+C before loading a different list.
+
+Run these commands in **all four terminals**:
+
+```powershell
+$sites = @(Get-Content .\sites.txt | ForEach-Object { $_.Trim().ToLowerInvariant() } | Where-Object { $_ -and -not $_.StartsWith('#') } | Sort-Object -Unique)
+if ($sites.Count -eq 0) { throw "Add at least one website to sites.txt" }
+$env:ALLOWED_HOSTS = $sites -join ','
+```
+
+This loads the same host list into each terminal. Blank lines and comments starting with `#` are ignored, and duplicate hostnames are checked once.
+
+Environment variables are local to each terminal, which is why the list must be loaded in each one.
+
+**Terminal 1: start the API**
 
 ```powershell
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --reload
 ```
 
-Wait for **Application startup complete**. The interactive API docs are at
-[http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs), version **0.5.0**.
-The bare `/` route is not defined, so its 404 response is expected.
+Wait for `Application startup complete`.
 
-**Terminal 2 â€” worker one:**
+Interactive API documentation is available at [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs).
+
+**Terminal 2: start worker one**
 
 ```powershell
 $env:WORKER_ID = "worker-1"
 .\.venv\Scripts\python.exe -m app.worker
 ```
 
-**Terminal 3 â€” worker two:**
+**Terminal 3: start worker two**
 
 ```powershell
 $env:WORKER_ID = "worker-2"
 .\.venv\Scripts\python.exe -m app.worker
 ```
 
-Wait for **Worker worker-1 ready** and **Worker worker-2 ready**.
+Wait for both workers to report that they are ready. Keep the API and both workers running.
 
-**Terminal 4 â€” submit and poll:**
+### 5. Run your batch
+
+In terminal 4:
 
 ```powershell
-$job = Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8000/checks" -ContentType "application/json" -Body '{"url":"https://example.com"}'
+.\.venv\Scripts\python.exe .\scripts\check_sites.py --wait-seconds 1800 --output-dir .\demo-results\custom-sites
+```
+
+The runner submits one job per unique hostname, waits for completion, prints a summary, and saves a uniquely named JSON report.
+
+The same command works with different list sizes, including a single website. To change the batch later:
+
+1. Edit `sites.txt`.
+2. Stop the API and workers.
+3. Reload the list in all four terminals.
+4. Restart the API and workers.
+5. Run the batch command again.
+
+There is no fixed 20-site or 200-site count in the general runner. Practical capacity depends on available memory, environment-variable size limits, worker count, network conditions, and the websites' response times.
+
+`--wait-seconds` sets the polling time allowance after submission. The runner finishes earlier when all jobs finish. Increase the allowance for larger or slower batches.
+
+For the general runner, **PASS means every requested job completed**. It doesn't require both workers to contribute, so a small batch can finish on one worker and still pass.
+
+### 6. Read the report
+
+The terminal prints the report's location. To display the newest custom report:
+
+```powershell
+$latest = Get-ChildItem .\demo-results\custom-sites\*.json | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+$report = Get-Content $latest.FullName -Raw | ConvertFrom-Json
+$report.results | Select-Object url, http_status, healthy, latency_ms, attempts, worker_id | Format-Table -AutoSize
+```
+
+To display unsuccessful checks:
+
+```powershell
+$report.results |
+    Where-Object { $_.healthy -ne $true } |
+    Select-Object url, http_status, attempts, error |
+    Format-Table -AutoSize -Wrap
+```
+
+Reload the report after each run so you're viewing the latest results.
+
+Generated reports are saved locally and ignored by Git. Selected example reports are retained in `docs/results/`.
+
+## Understanding the results
+
+| Field or result | Meaning |
+| --- | --- |
+| `queued` | The job is waiting for a worker. |
+| `running` | A worker has started processing it. |
+| `completed` | Processing finished, including unsuccessful checks. |
+| `reachable: true` | An HTTP response arrived. |
+| `healthy: true` | The response status was between 200 and 399. |
+| `latency_ms` | Time spent checking the URL across attempts, excluding queue time. |
+| `attempts` | Number of HTTP attempts, up to two. |
+| `worker_id` | Worker that handled the job. |
+
+Redirects are recorded without following their destinations. A redirect therefore meets the current health rule, but its destination has not been checked.
+
+An HTTP 403 response means access was denied. That response alone doesn't prove the website is down or identify why the request was blocked.
+
+The current worker sends a browser-style User-Agent through HTTPX. It doesn't launch a browser or execute JavaScript.
+
+Connection errors and timeouts get one retry, for a maximum of two attempts. Other request errors and HTTP status responses are not retried.
+
+HTTPX uses a five-second operation timeout. This is not a single five-second deadline for the whole job.
+
+Completed results expire from Redis after 24 hours. JSON reports already saved to disk remain available.
+
+## Using the API directly
+
+You can submit individual URLs without using a batch runner.
+
+| Endpoint | Purpose |
+| --- | --- |
+| `POST /checks` | Submit a URL and receive HTTP 202 with a job ID. |
+| `GET /checks/{job_id}` | Retrieve the job's current state and result. |
+| `/docs` | Explore and try the API interactively. |
+
+For example, with `example.com` allowed:
+
+```powershell
+$job = Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8000/checks" -ContentType "application/json" -Body '{"url":"https://example.com/"}'
 $job
 Invoke-RestMethod -Uri "http://127.0.0.1:8000/checks/$($job.job_id)"
 ```
 
-POST returns 202 and the queued job ID. Repeat the last command until its
-status is `completed`. You can also use **Try it out** on `/docs`; copy the
-actual POST response's `job_id` into GET, rather than using a schema example.
+Repeat the GET request until the job is completed.
 
-To stop the Python processes, press **Ctrl+C** in each API/worker terminal.
-`docker compose down` stops Redis while preserving its named data volume.
+The API also accepts HTTP URLs and specific page paths. The hostname must still be allowed.
 
-## API and result semantics
-
-| Endpoint | Response |
-| --- | --- |
-| `POST /checks` | 202 with `job_id` and `status: queued`; 422 for invalid URLs; 503 if Redis cannot enqueue. |
-| `GET /checks/{job_id}` | 200 with stored state; 404 for absent, invalid, or expired IDs; 503 if stored data cannot be read. |
-| `/docs` | Interactive API documentation. |
-
-Illustrative completed GET response. The ID, timestamps, and latency below are
-examples, not measurements from the verified batch:
-
-```json
-{
-  "job_id": "00000000-0000-4000-8000-000000000001",
-  "url": "https://example.com/",
-  "status": "completed",
-  "http_status": 200,
-  "reachable": true,
-  "healthy": true,
-  "latency_ms": 142,
-  "attempts": 1,
-  "worker_id": "worker-2",
-  "error": null,
-  "submitted_at": "2026-01-01T12:00:00Z",
-  "started_at": "2026-01-01T12:00:01Z",
-  "finished_at": "2026-01-01T12:00:01.142Z"
-}
-```
-
-| State | Information available |
-| --- | --- |
-| `queued` | ID, URL, submission time; outcome fields are null. |
-| `running` | Also worker ID and start time; unfinished outcomes remain null. |
-| `completed` | HTTP/network outcome, elapsed check time, attempts, worker, and finish time. |
-
-`completed` means processing finished, including an unsuccessful network check.
-`reachable` means an HTTP response arrived. `healthy` means its status was
-200â€“399; redirects are recorded without following them. HTTP 503 is reachable
-but unhealthy and is not retried. Network failures have null `http_status`,
-false reachability/health, and a sanitized error string.
-
-HTTPX connection errors and timeout exceptions get one retry, for at most two
-attempts. Other request errors and HTTP responses are terminal. A successful
-retry has `attempts: 2` and `error: null`. Each request uses HTTPX's 5-second
-operation timeout; it is not a single 5-second deadline for the whole job.
-`latency_ms` measures total elapsed HTTP check time across attempts, excluding
-queue waiting time. All timestamps use UTC.
-
-Completed job hashes expire 24 hours after their final write. Queued/running
-hashes have no expiry. Older records completed before TTL support was added
-are not migrated. To inspect a completed job's remaining expiry:
-
-```powershell
-$jobId = $job.job_id
-docker compose exec redis redis-cli TTL "letscheck:job:$jobId"
-```
-
-A fresh completed record should have a positive TTL near 86400 seconds.
-`-1` means no expiry; `-2` means the key is absent. Expired jobs return 404.
+Invalid URLs return 422. Missing, invalid, or expired job IDs return 404. Redis availability problems return 503.
 
 ## Configuration
 
-Set environment variables in the API and both worker terminals before starting
-their processes. Workers read the same URL policy as the API.
+Set environment variables before starting the API and workers.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `REDIS_URL` | `redis://127.0.0.1:6379/0` | Redis address, matching Compose's published IPv4 port. |
-| `ALLOWED_HOSTS` | `example.com,httpbin.org` | Comma-separated exact hostnames, case-insensitive. An empty list blocks all hosts. |
-| `WORKER_ID` | Hostname plus process ID | Consumer identity; use `worker-1` and `worker-2` for the demo. |
+| `REDIS_URL` | `redis://127.0.0.1:6379/0` | Redis connection address. |
+| `ALLOWED_HOSTS` | `example.com,httpbin.org` | Comma-separated exact hostnames that may be checked. |
+| `WORKER_ID` | Hostname plus process ID | Worker identity recorded in results. |
 
-Only HTTP(S) URLs are accepted. Embedded credentials, localhost names, nonpublic
-IP literals, and non-allowlisted hosts are rejected. Redirects are never followed.
-The stream is `letscheck:checks`, the group is `letscheck-workers`, and hashes
-use `letscheck:job:<uuid>`. The group starts at `0-0` to include queued backlog.
+Both the API and workers validate the hostname allowlist. URLs with embedded credentials, localhost names, and nonpublic IP literals are rejected.
 
-## Tests and the 20-job demo
+Additional workers can join the same queue with unique worker IDs. Each worker processes one job at a time. The recorded live tests used two workers.
 
-Automated tests use mocked Redis and HTTP, without Docker or public internet:
+## Automated tests and original demos
+
+Run the automated tests with:
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest -q
 ```
 
-Observed Windows result: **58 passed, 1 warning in 1.14s**. Coverage includes URL
-validation, Redis failures, job lookup, HTTP success/errors, bounded retries,
-redirect handling, result expiry, and saving before acknowledgment. The one
-warning is an upstream Starlette TestClient HTTPX deprecation; it does not fail
-the suite. More detail is in [tests/README.md](tests/README.md).
+The earlier recorded Windows result was **58 passed, 1 warning**. These tests use mocked Redis and HTTP, so Docker and public website access are not required.
 
-With Redis, the API, and both named workers running, execute in terminal 4:
+Coverage includes URL validation, API responses, Redis failures, HTTP outcomes, retries, redirect handling, result expiry, and saving results before acknowledging jobs.
+
+See [tests/README.md](tests/README.md) and [the original evidence](docs/DEMO_EVIDENCE.md) for details.
+
+The original demonstration submits 20 checks of `example.com`:
 
 ```powershell
 .\.venv\Scripts\python.exe .\scripts\demo_20_jobs.py
 ```
 
-The manual demo submits 20 independent checks of `https://example.com` and polls
-for up to 180 seconds. PASS requires all 20 jobs completed and both expected
-worker IDs present. Counts need not be equal. A failed website check still
-counts as processed; its actual outcome appears in the report.
+It requires all 20 jobs to complete and both named workers to contribute. Make sure `example.com` is allowed in the API and workers before running it.
 
-Each run saves a unique JSON report under `demo-results/`, including submitted
-IDs, latest results, worker counts, timestamps, and pass/fail status. Reports
-are excluded from Git. On failure or interruption, IDs already received and
-results already collected are retained. The helper does not cancel accepted
-jobs or retry POST requests. The verified Windows batch and its terminal
-summary are recorded in [docs/DEMO_EVIDENCE.md](docs/DEMO_EVIDENCE.md).
+The original `demo_20_sites.py` and `demo_200_sites.py` scripts retain their fixed expected counts and two-worker requirement. Use `check_sites.py` for your own list sizes.
 
-## Tradeoffs and limitations
+## Current limitations
 
-- Queuing adds Redis and a polling step, but lets the API hand network work to
-  independent processes and gives workers a shared backlog.
-- Consumer groups track pending messages. A worker crash before acknowledgment
-  can leave a job pending indefinitely: automatic reclaim/recovery is not
-  implemented. This MVP makes no exactly-once delivery guarantee.
-- Redis transactions group job writes and stream publication, but do not roll
-  back commands that encounter runtime errors. AOF persistence is enabled for
-  the local Redis service; this is not a high-availability deployment.
-- Completed hashes expire after 24 hours; stream entries and unfinished hashes
-  are retained without trimming. Storage cleanup beyond result TTL is future work.
-- This is a controlled local demo without authentication, scheduling, alerts,
-  or a frontend. Its allowlist is not a complete DNS/SSRF defense for public
-  deployment.
-- Two named worker processes were demonstrated on one Windows computer. No
-  multi-machine deployment, speedup, or throughput benchmark is claimed.
+- The live demonstrations ran on one computer. Multi-machine deployment and performance at larger scales have not been verified.
+- If a worker crashes after claiming a job, automatic recovery of that pending job is not implemented.
+- Completed result hashes expire, but stream entries and unfinished jobs are not automatically cleaned up.
+- Authentication, recurring schedules, alerts, and a web dashboard are not implemented.
+- The hostname allowlist is not a complete DNS/SSRF defense for a public deployment.
+- This is a local project, and Redis is not configured as a highly available service.
 
-## Project files and GitHub
+## Stopping the project
+
+Press Ctrl+C in the API and worker terminals.
+
+To stop Redis:
+
+```powershell
+docker compose down
+```
+
+The named Redis data volume is retained.
+
+## Project layout
 
 | Path | Purpose |
 | --- | --- |
-| `app/` | API, schemas, Redis queue/storage, and worker loop. |
-| `tests/` | Deterministic API and worker tests. |
+| `app/main.py` | FastAPI endpoints. |
+| `app/schemas.py` | URL validation and response models. |
+| `app/queue.py` | Redis queue and job storage. |
+| `app/worker.py` | HTTP checks and worker loop. |
+| `scripts/check_sites.py` | General batch runner, created in the setup instructions. |
 | `scripts/demo_20_jobs.py` | Original 20-job example.com demo. |
-| `scripts/demo_20_sites.py` | Batch helper for 20 distinct allowed hosts. |
-| `scripts/demo_200_sites.py` | Batch helper for 200 distinct allowed hosts. |
-| `sites_20.txt`, `sites_200.txt` | Target lists for the multi-website demos. |
-| `docs/BATCH_RESULTS.md` | Live results, reproduction instructions, and report links. |
-| `docs/results/` | Selected JSON reports retained as evidence. |
-| `docker-compose.yml` | Local Redis, AOF persistence, volume, and healthcheck. |
-| `requirements.txt` | Pinned direct Python dependencies. |
-| `docs/DEMO_EVIDENCE.md` | Recorded Windows test/batch evidence. |
-| `docs/GITHUB_SETUP.md` | First commit and publication steps. |
+| `scripts/demo_20_sites.py` | Original 20-site demo. |
+| `scripts/demo_200_sites.py` | Original 200-site demo. |
+| `sites_20.txt`, `sites_200.txt` | Example website lists. |
+| `tests/` | Automated API and worker tests. |
+| `docs/BATCH_RESULTS.md` | Live batch comparison and report links. |
+| `docs/results/` | Selected JSON reports. |
+| `docker-compose.yml` | Local Redis service and persistent volume. |
+| `requirements.txt` | Python dependencies. |
 
-Follow [the GitHub setup guide](docs/GITHUB_SETUP.md) to publish your copy.
 Repository: [hitesh-na/Lets-Check](https://github.com/hitesh-na/Lets-Check).
-
-## References
-
-- [Python virtual environments](https://docs.python.org/3.11/library/venv.html)
-- [Docker Compose services](https://docs.docker.com/reference/compose-file/services/)
-- [Redis consumer groups](https://redis.io/docs/latest/commands/xgroup-create/)
-- [Redis transactions](https://redis.io/docs/latest/develop/clients/redis-py/transpipe/)
-- [HTTPX async streaming](https://www.python-httpx.org/async/)
-- [HTTPX exception hierarchy](https://www.python-httpx.org/exceptions/)
-- [FastAPI testing](https://fastapi.tiangolo.com/tutorial/testing/)
