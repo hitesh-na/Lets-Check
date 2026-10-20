@@ -113,56 +113,9 @@ Redis should respond with `PONG`. If it is still starting, wait a few seconds an
 
 The commands below use the virtual environment's Python directly, so activating the environment is optional.
 
-### 2. Prepare the general batch runner
 
-The original demo scripts expect a fixed number of results. For your own list sizes, use `scripts/check_sites.py`.
 
-If that file already exists, continue to step 3. Otherwise, run this once in PowerShell from the project folder. It creates the general runner from the existing 200-site demo:
-
-```powershell
-@'
-import ast
-from pathlib import Path
-
-source = Path("scripts/demo_200_sites.py").read_text(encoding="utf-8-sig")
-
-changes = {
-    "BATCH_SIZE = 200": """HOSTS = list(dict.fromkeys(
-    host.strip().lower()
-    for host in os.getenv("ALLOWED_HOSTS", "").split(",")
-    if host.strip()
-))
-BATCH_SIZE = len(HOSTS)""",
-    'EXPECTED_WORKERS = {"worker-1", "worker-2"}':
-        "EXPECTED_WORKERS = set()",
-    'for host in os.environ["ALLOWED_HOSTS"].split(","):':
-        "for host in HOSTS:",
-    '"All 200 jobs completed and both expected workers contributed."':
-        'f"All {BATCH_SIZE} jobs completed."',
-    "    started_at = datetime.now(UTC)":
-        '    if not HOSTS:\n'
-        '        parser.error("Load your websites into ALLOWED_HOSTS first")\n\n'
-        '    started_at = datetime.now(UTC)',
-}
-
-for old, new in changes.items():
-    if source.count(old) != 1:
-        raise SystemExit("The demo differs from the expected version. No file changed.")
-    source = source.replace(old, new, 1)
-
-source = source.replace(
-    "Submit a manual 200-site demo and record whether both named workers contributed.",
-    "Check the websites in ALLOWED_HOSTS and save a batch report."
-)
-ast.parse(source)
-Path("scripts/check_sites.py").write_text(source, encoding="utf-8")
-print("Created scripts/check_sites.py")
-'@ | .\.venv\Scripts\python.exe -
-```
-
-This keeps the original demo available and creates a runner that calculates its expected result count from your website list.
-
-### 3. Choose your websites
+### 2. Choose your websites
 
 Create a file named `sites.txt` in the project folder. Put one hostname on each line:
 
@@ -184,7 +137,7 @@ Copy-Item .\sites_200.txt .\sites.txt
 
 For the 20-site example, use `sites_20.txt` instead.
 
-### 4. Load the list and start the API and workers
+### 3. Load the list and start the API and workers
 
 Open four PowerShell terminals in the project folder.
 
@@ -228,7 +181,7 @@ $env:WORKER_ID = "worker-2"
 
 Wait for both workers to report that they are ready. Keep the API and both workers running.
 
-### 5. Run your batch
+### 4. Run your batch
 
 In terminal 4:
 
@@ -252,7 +205,7 @@ There is no fixed 20-site or 200-site count in the general runner. Practical cap
 
 For the general runner, **PASS means every requested job completed**. It doesn't require both workers to contribute, so a small batch can finish on one worker and still pass.
 
-### 6. Read the report
+### 5. Read the report
 
 The terminal prints the report's location. To display the newest custom report:
 
