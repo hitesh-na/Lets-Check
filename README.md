@@ -12,7 +12,7 @@ consumer group and each handle one job at a time.
 **Verified on Windows/Python 3.11.7:** 58 automated tests passed. A manual
 20-job batch completed with HTTP 200 for every job: worker-1 handled 10 and
 worker-2 handled 10. See [the demo record](docs/DEMO_EVIDENCE.md). This is a
-local portfolio MVP; GitHub publication is the remaining delivery step.
+local portfolio MVP; 
 
 ## Architecture
 
