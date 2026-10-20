@@ -1,0 +1,7 @@
+# Dependencies installed on Windows/Python 3.11.7 and Linux/Python 3.12.
+fastapi==0.148.0
+pydantic==2.14.1
+uvicorn[standard]==0.54.0
+redis==8.1.0
+httpx==0.28.1
+pytest==9.1.1
