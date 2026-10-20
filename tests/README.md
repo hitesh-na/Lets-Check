@@ -41,3 +41,8 @@ is not included in `pytest`.
 The installed Starlette TestClient emits a deprecation warning about HTTPX;
 it does not fail the test suite. See [the demo record](../docs/DEMO_EVIDENCE.md)
 for recorded integration results.
+
+
+## Multi-website integration runs
+
+The 20-site and 200-site helpers use live HTTP, Redis, and two worker processes. See the [batch instructions and evidence](../docs/BATCH_RESULTS.md). These manual runs are separate from pytest.

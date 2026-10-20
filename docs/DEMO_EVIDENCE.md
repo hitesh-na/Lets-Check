@@ -68,3 +68,8 @@ timeouts stopping after two attempts, a successful retry, no retry for HTTP
 reported failure when a worker was missing, jobs exceeded its completion
 deadline, or the API was unavailable. Those fixtures are not public website
 health or performance measurements.
+
+
+## Subsequent multi-website runs
+
+See the [20-site and 200-site verification](BATCH_RESULTS.md) for the newer results and retained JSON reports.

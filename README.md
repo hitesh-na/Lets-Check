@@ -9,10 +9,16 @@ workers perform the network requests, so a slow website does not keep the
 submission request waiting for the check to finish. Two workers share a Redis
 consumer group and each handle one job at a time.
 
-**Verified on Windows/Python 3.11.7:** 58 automated tests passed. A manual
-20-job batch completed with HTTP 200 for every job: worker-1 handled 10 and
-worker-2 handled 10. See [the demo record](docs/DEMO_EVIDENCE.md). This is a
-local portfolio MVP; GitHub publication is the remaining delivery step.
+**Live verification on Windows, 2026-10-20:** a 20-site batch and two
+200-site batches completed with both workers participating. The baseline
+200-site run completed in **50.95 seconds**. A subsequent browser-style
+User-Agent run also completed all 200 jobs; both runs classified 150
+results as healthy under the project's HTTP-status rules.
+
+Previously recorded automated test result: **58 passed, 1 warning**.
+See the [original demo evidence](docs/DEMO_EVIDENCE.md) and
+[multi-website results and instructions](docs/BATCH_RESULTS.md).
+This project is a local portfolio MVP.
 
 ## Architecture
 
@@ -74,7 +80,7 @@ separate lock file for that environment.
 Use four terminals, all opened in the project folder. Keep the API and worker
 commands running. If a process is already running, use that instance.
 
-**Terminal 1 — API:**
+**Terminal 1 â€” API:**
 
 ```powershell
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --reload
@@ -84,14 +90,14 @@ Wait for **Application startup complete**. The interactive API docs are at
 [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs), version **0.5.0**.
 The bare `/` route is not defined, so its 404 response is expected.
 
-**Terminal 2 — worker one:**
+**Terminal 2 â€” worker one:**
 
 ```powershell
 $env:WORKER_ID = "worker-1"
 .\.venv\Scripts\python.exe -m app.worker
 ```
 
-**Terminal 3 — worker two:**
+**Terminal 3 â€” worker two:**
 
 ```powershell
 $env:WORKER_ID = "worker-2"
@@ -100,7 +106,7 @@ $env:WORKER_ID = "worker-2"
 
 Wait for **Worker worker-1 ready** and **Worker worker-2 ready**.
 
-**Terminal 4 — submit and poll:**
+**Terminal 4 â€” submit and poll:**
 
 ```powershell
 $job = Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8000/checks" -ContentType "application/json" -Body '{"url":"https://example.com"}'
@@ -152,7 +158,7 @@ examples, not measurements from the verified batch:
 
 `completed` means processing finished, including an unsuccessful network check.
 `reachable` means an HTTP response arrived. `healthy` means its status was
-200–399; redirects are recorded without following them. HTTP 503 is reachable
+200â€“399; redirects are recorded without following them. HTTP 503 is reachable
 but unhealthy and is not retried. Network failures have null `http_status`,
 false reachability/health, and a sanitized error string.
 
@@ -247,15 +253,19 @@ summary are recorded in [docs/DEMO_EVIDENCE.md](docs/DEMO_EVIDENCE.md).
 | --- | --- |
 | `app/` | API, schemas, Redis queue/storage, and worker loop. |
 | `tests/` | Deterministic API and worker tests. |
-| `scripts/demo_20_jobs.py` | Manual batch and JSON report helper. |
+| `scripts/demo_20_jobs.py` | Original 20-job example.com demo. |
+| `scripts/demo_20_sites.py` | Batch helper for 20 distinct allowed hosts. |
+| `scripts/demo_200_sites.py` | Batch helper for 200 distinct allowed hosts. |
+| `sites_20.txt`, `sites_200.txt` | Target lists for the multi-website demos. |
+| `docs/BATCH_RESULTS.md` | Live results, reproduction instructions, and report links. |
+| `docs/results/` | Selected JSON reports retained as evidence. |
 | `docker-compose.yml` | Local Redis, AOF persistence, volume, and healthcheck. |
 | `requirements.txt` | Pinned direct Python dependencies. |
 | `docs/DEMO_EVIDENCE.md` | Recorded Windows test/batch evidence. |
 | `docs/GITHUB_SETUP.md` | First commit and publication steps. |
 
 Follow [the GitHub setup guide](docs/GITHUB_SETUP.md) to publish your copy.
-Local verification is complete; a successful push and repository URL still
-need confirmation.
+Repository: [hitesh-na/Lets-Check](https://github.com/hitesh-na/Lets-Check).
 
 ## References
 

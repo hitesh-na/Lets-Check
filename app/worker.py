@@ -102,7 +102,13 @@ async def run_worker() -> None:
     redis = connect_redis()
     try:
         await ensure_group(redis)
-        async with httpx.AsyncClient(timeout=5.0, follow_redirects=False) as client:
+        async with httpx.AsyncClient(
+            timeout=5.0,
+            follow_redirects=False,
+            headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36 Edg/155.0.0.0"
+            },
+        ) as client:
             logger.info("Worker %s ready", worker_id)
             await consume(redis, client, worker_id)
     finally:
