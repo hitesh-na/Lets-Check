@@ -1,6 +1,6 @@
 # Publish Let's Check from Windows
 
-The verified source is ready to commit. GitHub publication is not yet verified.
+The verified source is ready to commit.
 These steps use Git and PowerShell from the project folder containing
 `README.md`, `app`, and `docker-compose.yml`. No GitHub CLI installation is needed.
 
